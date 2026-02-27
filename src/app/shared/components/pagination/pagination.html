@@ -1,0 +1,22 @@
+
+<div class="join flex justify-center items-center">
+
+  @for (page of getPagesList(); track page)
+  {
+    <input
+      class="join-item btn btn-square"
+      type="radio"
+      name="options"
+      [aria-label]="page"
+      [checked]=" page === activePage() ? 'checked' : null"
+      [routerLink]="[]"
+      [queryParams]="{ page: page }"
+      (click)=" activePage.set(page) "
+    />
+  }
+  @empty
+  {
+
+  }
+
+</div>
