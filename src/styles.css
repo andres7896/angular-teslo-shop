@@ -28,5 +28,5 @@ html {
 }
 
 @plugin "daisyui" {
-  themes: emeral --default, forest --prefersdark;
+  themes: emerald --default, forest --prefersdark;
 }
