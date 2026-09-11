@@ -4,12 +4,14 @@ import { provideRouter } from '@angular/router';
 
 import { AdminDashboardLayout } from './admin-dashboard-layout';
 import { AuthApi } from '@/auth/services/auth/auth-api';
-import { createAuthApiMock, createUser } from 'src/testing/mocks';
+import { ThemeStore } from '@/shared/services/theme-store';
+import { createAuthApiMock, createThemeStoreMock, createUser } from 'src/testing/mocks';
 
 describe('AdminDashboardLayout', () => {
   let fixture: ComponentFixture<AdminDashboardLayout>;
   let component: AdminDashboardLayout;
   let authApi: ReturnType<typeof createAuthApiMock>;
+  let themeStore: ReturnType<typeof createThemeStoreMock>;
 
   const html = () => fixture.nativeElement as HTMLElement;
 
@@ -19,6 +21,7 @@ describe('AdminDashboardLayout', () => {
       authStatus: 'authenticated',
       isAdmin: true,
     });
+    themeStore = createThemeStoreMock();
 
     await TestBed.configureTestingModule({
       imports: [AdminDashboardLayout],
@@ -26,6 +29,7 @@ describe('AdminDashboardLayout', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: AuthApi, useValue: authApi },
+        { provide: ThemeStore, useValue: themeStore },
       ],
     }).compileComponents();
 
@@ -58,8 +62,19 @@ describe('AdminDashboardLayout', () => {
   });
 
   it('should log the user out from the sidebar button', () => {
-    html().querySelector<HTMLButtonElement>('button.btn-ghost')!.click();
+    const logout = html().querySelector<HTMLButtonElement>('button.btn-error')!;
+
+    expect(logout.textContent).toContain('Cerrar sesión');
+
+    logout.click();
 
     expect(authApi.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('should toggle the theme from the sidebar', () => {
+    html().querySelector<HTMLInputElement>('theme-toggle input')!.click();
+
+    expect(themeStore.toggle).toHaveBeenCalledTimes(1);
+    expect(authApi.logout).not.toHaveBeenCalled();
   });
 });
