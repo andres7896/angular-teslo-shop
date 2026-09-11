@@ -1,0 +1,269 @@
+// Hooks del flujo de trabajo de Claude Code para TesloShop.
+// Uso: node workflow.mjs <session-start|prompt-submit|pre-edit|pre-bash>
+// Lee el JSON del hook por stdin. Ante cualquier error inesperado deja pasar (fail-open).
+
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const CONTEXT_DIR = path.join(PROJECT_DIR, '.claude', 'context');
+const CONTEXT_FILE = path.join(CONTEXT_DIR, 'project-context.md');
+const REVIEW_FILE = path.join(CONTEXT_DIR, 'review-approved.json');
+const MAIN = 'main';
+
+// ---------- utilidades ----------
+
+function git(args, timeout = 5000) {
+  const result = spawnSync('git', args, {
+    cwd: PROJECT_DIR,
+    encoding: 'utf8',
+    timeout,
+    windowsHide: true,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  });
+  if (result.error || result.status !== 0) return null;
+  return result.stdout.trim();
+}
+
+/** Rama actual; '' si HEAD está detached; null si git falla. */
+function currentBranch() {
+  return git(['branch', '--show-current']);
+}
+
+function readStdinJson() {
+  try {
+    const raw = readFileSync(0, 'utf8');
+    return raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function deny(reason) {
+  return { decision: 'deny', reason };
+}
+
+function ask(reason) {
+  return { decision: 'ask', reason };
+}
+
+function emitPreToolDecision({ decision, reason }) {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: decision,
+        permissionDecisionReason: reason,
+      },
+    }),
+  );
+}
+
+// ---------- session-start ----------
+
+function readLastCommit() {
+  if (!existsSync(CONTEXT_FILE)) return null;
+  const match = readFileSync(CONTEXT_FILE, 'utf8').match(/^last_commit:\s*([0-9a-f]{7,40})\s*$/m);
+  return match ? match[1] : null;
+}
+
+function sessionStart() {
+  git(['fetch', 'origin', MAIN, '--quiet'], 8000);
+  const ref = git(['rev-parse', '--verify', '--quiet', `origin/${MAIN}`]) ? `origin/${MAIN}` : MAIN;
+  const tip = git(['rev-parse', ref]);
+  if (!tip) return;
+
+  const branch = currentBranch() || '(HEAD detached)';
+  const lastCommit = readLastCommit();
+  if (!lastCommit) {
+    console.log(
+      'No existe el contexto del proyecto: ejecuta el sub-agente git-context antes de planear o cambiar algo.',
+    );
+    return;
+  }
+
+  const last = git(['rev-parse', '--verify', '--quiet', `${lastCommit}^{commit}`]);
+  if (last === tip) {
+    console.log(`Contexto del proyecto al día con ${ref} (${tip.slice(0, 7)}). Rama actual: ${branch}.`);
+    return;
+  }
+
+  const count = last ? git(['rev-list', '--count', `${last}..${ref}`]) : null;
+  const detail = count
+    ? `Hay ${count} commit${count === '1' ? '' : 's'} nuevo${count === '1' ? '' : 's'} en ${MAIN}`
+    : `El historial de ${MAIN} cambió`;
+  console.log(
+    `${detail} desde ${lastCommit.slice(0, 7)}: ejecuta el sub-agente git-context antes de planear o cambiar algo. Rama actual: ${branch}.`,
+  );
+}
+
+// ---------- prompt-submit ----------
+
+function promptSubmit(input) {
+  if (input.permission_mode !== 'plan') return;
+  console.log(
+    'Modo plan: usa la skill grilling para las decisiones abiertas (cada pregunta con respuesta recomendada; AskUserQuestion si las opciones son cerradas), ' +
+      'angular-developer para el enfoque Angular (v20.3, Karma + Jasmine; ignora Vitest y Signal Forms) y frontend-design si la feature toca UI. ' +
+      'Antes de planear, confirma que git-context se ejecutó.',
+  );
+}
+
+// ---------- pre-edit ----------
+
+function normalize(p) {
+  const resolved = path.resolve(PROJECT_DIR, p);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function isInside(dir, target) {
+  const rel = path.relative(normalize(dir), normalize(target));
+  return rel === '' || (rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel));
+}
+
+function preEdit(input) {
+  if (process.env.CLAUDE_ALLOW_MAIN_EDITS === '1') return;
+  const target = input.tool_input?.file_path || input.tool_input?.notebook_path;
+  if (!target) return;
+  if (!isInside(PROJECT_DIR, target) || isInside(CONTEXT_DIR, target)) return;
+  if (currentBranch() !== MAIN) return; // otra rama, HEAD detached ('') o git falló (null)
+  emitPreToolDecision(
+    deny('Estás en main: ejecuta el sub-agente git-branch para crear la rama de trabajo antes de editar.'),
+  );
+}
+
+// ---------- pre-bash ----------
+
+const GIT_COMMIT_OR_PUSH = /\bgit((?:\s+-[Cc]\s+\S+|\s+--[\w-]+(?:=\S+)?)*)\s+(commit|push)\b(.*)$/;
+
+// Flags de `git commit` que toman un valor como token siguiente.
+const COMMIT_VALUE_FLAGS = new Set([
+  '-m', '-F', '-C', '-c', '-t', '--message', '--file', '--reuse-message', '--reedit-message',
+  '--template', '--author', '--date', '--cleanup', '--fixup', '--squash', '--trailer',
+]);
+const COMMIT_FORBIDDEN = new Set([
+  '--amend', '--all', '--no-verify', '--only', '--include', '--patch', '--interactive',
+]);
+const COMMIT_FORBIDDEN_SHORT = /^-[A-Za-z]*[anoip]/; // -a, -am, -n, -o, -i, -p
+
+const PUSH_FORBIDDEN = new Set([
+  '--force', '--force-with-lease', '--force-if-includes', '--mirror', '--all', '--branches',
+  '--delete', '--prune',
+]);
+const PUSH_FORBIDDEN_SHORT = /^-[A-Za-z]*[fd]/; // -f, -d, -uf
+
+/** Quita heredocs, here-strings y textos entre comillas para no confundir mensajes con comandos. */
+function stripLiterals(command) {
+  return command
+    .replace(/<<-?[ \t]*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2[ \t]*\r?(?=\n|$)/g, ' $3')
+    .replace(/@(['"])[ \t]*\r?\n[\s\S]*?\r?\n\1@/g, ' ')
+    .replace(/"((?:[^"\\`]|\\[\s\S]|`[\s\S])*)"/g, (_, text) => (/\s/.test(text) ? '""' : text))
+    .replace(/'([^']*)'/g, (_, text) => (/\s/.test(text) ? "''" : text));
+}
+
+function splitSegments(command) {
+  return stripLiterals(command).split(/&&|\|\||[;|\n]/);
+}
+
+function tokenize(text) {
+  return text.trim().split(/\s+/).filter(Boolean);
+}
+
+function forbiddenCommitArg(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const flag = arg.split('=')[0];
+    if (COMMIT_VALUE_FLAGS.has(arg)) {
+      i++; // salta el valor
+      continue;
+    }
+    if (arg === '--') return '-- <pathspec>';
+    if (COMMIT_FORBIDDEN.has(flag)) return flag;
+    if (!arg.startsWith('--') && COMMIT_FORBIDDEN_SHORT.test(arg)) return arg;
+    if (!arg.startsWith('-') && arg !== '""' && arg !== "''") return `con pathspec (${arg})`;
+  }
+  return null;
+}
+
+function reviewMatchesIndex() {
+  try {
+    if (!existsSync(REVIEW_FILE)) return false;
+    const review = JSON.parse(readFileSync(REVIEW_FILE, 'utf8'));
+    return (
+      review.branch === currentBranch() &&
+      review.head === git(['rev-parse', 'HEAD']) &&
+      review.tree === git(['write-tree'])
+    );
+  } catch {
+    return false;
+  }
+}
+
+function checkCommit(args) {
+  if (process.env.CLAUDE_SKIP_REVIEW === '1') return null;
+  const problem = forbiddenCommitArg(args);
+  if (problem) {
+    return deny(`git commit ${problem} no está permitido: el commit lo hace git-review con el índice revisado.`);
+  }
+  if (!reviewMatchesIndex()) {
+    return deny('El índice no pasó por git-review: invoca el sub-agente git-review (modo commit) antes de commitear.');
+  }
+  return null;
+}
+
+function targetsMain(refspec) {
+  const destination = refspec.includes(':') ? refspec.split(':').pop() : refspec;
+  if (destination === 'HEAD') return currentBranch() === MAIN;
+  return destination === MAIN || destination === `refs/heads/${MAIN}`;
+}
+
+function checkPush(args, segment) {
+  const badFlag = args.find(
+    (arg) =>
+      PUSH_FORBIDDEN.has(arg.split('=')[0]) || (!arg.startsWith('--') && PUSH_FORBIDDEN_SHORT.test(arg)),
+  );
+  if (badFlag) {
+    return deny(`git push ${badFlag} no está permitido: force, mirror y borrado de ramas están bloqueados.`);
+  }
+
+  const refspecs = args.filter((arg) => !arg.startsWith('-')).slice(1); // [0] es el remoto
+  if (refspecs.some((ref) => ref.startsWith('+') || ref.startsWith(':'))) {
+    return deny('Los refspecs con + (force) o : (borrado) no están permitidos.');
+  }
+  if (refspecs.some(targetsMain) || (refspecs.length === 0 && currentBranch() === MAIN)) {
+    return deny('El push directo a main está bloqueado: sube una rama de trabajo y abre un PR.');
+  }
+  return ask(`Confirma el push: ${segment.trim()}`);
+}
+
+function preBash(input) {
+  const command = input.tool_input?.command;
+  if (typeof command !== 'string') return;
+
+  const verdicts = [];
+  for (const segment of splitSegments(command)) {
+    const match = segment.match(GIT_COMMIT_OR_PUSH);
+    if (!match) continue;
+    const args = tokenize(match[3]);
+    const verdict = match[2] === 'commit' ? checkCommit(args) : checkPush(args, segment);
+    if (verdict) verdicts.push(verdict);
+  }
+
+  const verdict = verdicts.find((v) => v.decision === 'deny') ?? verdicts.find((v) => v.decision === 'ask');
+  if (verdict) emitPreToolDecision(verdict);
+}
+
+// ---------- main ----------
+
+const HANDLERS = {
+  'session-start': sessionStart,
+  'prompt-submit': promptSubmit,
+  'pre-edit': preEdit,
+  'pre-bash': preBash,
+};
+
+try {
+  HANDLERS[process.argv[2]]?.(readStdinJson());
+} catch {
+  // fail-open: un hook roto nunca debe bloquear la sesión
+}

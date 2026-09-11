@@ -41,3 +41,10 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Claude Code (estado local: contexto generado, marca de revisión, ajustes personales)
+/.claude/context/
+/.claude/settings.local.json
+
+# Lockfiles de otros gestores (el proyecto usa npm)
+bun.lock
