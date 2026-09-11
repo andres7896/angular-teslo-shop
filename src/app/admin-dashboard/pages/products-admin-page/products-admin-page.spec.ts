@@ -115,7 +115,7 @@ describe('ProductsAdminPage', () => {
   it('should link to the new product form', async () => {
     await setup();
 
-    const button = html().querySelector<HTMLButtonElement>('button.btn-primary')!;
+    const button = html().querySelector<HTMLButtonElement>('button.btn-secondary')!;
     expect(button.textContent).toContain('Agregar producto');
   });
 });

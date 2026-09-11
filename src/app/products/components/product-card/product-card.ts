@@ -10,6 +10,8 @@ import { ProductImagePipe } from '@/products/pipes/product-image-pipe.ts-pipe';
   selector: 'product-card',
   imports: [RouterLink, SlicePipe, ProductImagePipe],
   templateUrl: './product-card.html',
+  // Ocupa toda la celda del grid para que las cards de una fila midan lo mismo.
+  host: { class: 'block h-full' },
 })
 export class ProductCard {
 
