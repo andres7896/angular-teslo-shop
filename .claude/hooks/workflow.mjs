@@ -236,10 +236,59 @@ function checkPush(args, segment) {
   return ask(`Confirma el push: ${segment.trim()}`);
 }
 
-function preBash(input) {
-  const command = input.tool_input?.command;
-  if (typeof command !== 'string') return;
+// Texto que otra capa ejecuta como comando (bash -c, pwsh -Command, eval/iex, $(...), heredocs y
+// here-strings pasados a un shell, -EncodedCommand): se analiza también su contenido.
+// Es best-effort: no cubre alias de git, scripts en archivos ni Start-Process; ahí la última
+// barrera es el prompt de permisos.
 
+const MAX_WRAP_DEPTH = 3;
+const BEFORE_WORD = String.raw`(?:^|[\s;&|(])`;
+const QUOTED = String.raw`(?:"((?:[^"\\\x60]|\\[\s\S]|\x60[\s\S])*)"|'([^']*)')`;
+const WRAPPED_QUOTED = [
+  new RegExp(String.raw`${BEFORE_WORD}(?:ba|z|da|k)?sh(?:\.exe)?[^\n;&|"']*?\s-[A-Za-z]*c[A-Za-z]*\s+${QUOTED}`, 'g'),
+  new RegExp(String.raw`${BEFORE_WORD}(?:pwsh|powershell)(?:\.exe)?[^\n;&|"']*?\s-c[a-z]*\s+${QUOTED}`, 'gi'),
+  new RegExp(String.raw`${BEFORE_WORD}(?:eval|Invoke-Expression|iex)(?:\s+-Command)?\s+${QUOTED}`, 'gi'),
+];
+const ENCODED_COMMAND = new RegExp(
+  String.raw`${BEFORE_WORD}(?:pwsh|powershell)(?:\.exe)?[^\n;&|"']*?\s-e(?:c|nc[a-z]*)?\s+([A-Za-z0-9+/=]{8,})`,
+  'gi',
+);
+const SUBSHELL = /\$\(([^()]*)\)|`([^`\n]*)`/g;
+const HEREDOC = /([^\n]*)<<-?[ \t]*(['"]?)(\w+)\2([^\n]*)\n([\s\S]*?)\n[ \t]*\3[ \t]*\r?(?=\n|$)/g;
+const HERE_STRING = /([^\n]*)@(['"])[ \t]*\r?\n([\s\S]*?)\r?\n\2@([^\n]*)/g;
+const SHELL_RUNNER = /(?:^|[\s;&|(])(?:(?:ba|z|da|k)?sh|pwsh|powershell)(?:\.exe)?(?=[\s;&|)]|$)/i;
+const EXPRESSION_RUNNER = /(?:^|[\s;&|(])(?:iex|Invoke-Expression|pwsh|powershell)(?:\.exe)?(?=[\s;&|)]|$)/i;
+
+function unescapeDoubleQuoted(text) {
+  return text.replace(/\\(["\\$`])/g, '$1').replace(/`(["`$])/g, '$1');
+}
+
+function wrappedCommands(command) {
+  const inner = [];
+  for (const pattern of WRAPPED_QUOTED) {
+    for (const [, doubleQuoted, singleQuoted] of command.matchAll(pattern)) {
+      inner.push(doubleQuoted !== undefined ? unescapeDoubleQuoted(doubleQuoted) : singleQuoted);
+    }
+  }
+  for (const [, dollar, backtick] of command.matchAll(SUBSHELL)) inner.push(dollar ?? backtick);
+  for (const [, encoded] of command.matchAll(ENCODED_COMMAND)) {
+    inner.push(Buffer.from(encoded, 'base64').toString('utf16le'));
+  }
+  for (const [, before, , , after, body] of command.matchAll(HEREDOC)) {
+    if (SHELL_RUNNER.test(`${before} ${after}`)) inner.push(body);
+  }
+  for (const [, before, , body, after] of command.matchAll(HERE_STRING)) {
+    if (EXPRESSION_RUNNER.test(`${before} ${after}`)) inner.push(body);
+  }
+  return inner;
+}
+
+function collectCommands(command, depth = 0) {
+  if (depth >= MAX_WRAP_DEPTH) return [command];
+  return [command, ...wrappedCommands(command).flatMap((inner) => collectCommands(inner, depth + 1))];
+}
+
+function analyzeCommand(command) {
   const verdicts = [];
   for (const segment of splitSegments(command)) {
     const match = segment.match(GIT_COMMIT_OR_PUSH);
@@ -248,7 +297,14 @@ function preBash(input) {
     const verdict = match[2] === 'commit' ? checkCommit(args) : checkPush(args, segment);
     if (verdict) verdicts.push(verdict);
   }
+  return verdicts;
+}
 
+function preBash(input) {
+  const command = input.tool_input?.command;
+  if (typeof command !== 'string') return;
+
+  const verdicts = collectCommands(command).flatMap(analyzeCommand);
   const verdict = verdicts.find((v) => v.decision === 'deny') ?? verdicts.find((v) => v.decision === 'ask');
   if (verdict) emitPreToolDecision(verdict);
 }
