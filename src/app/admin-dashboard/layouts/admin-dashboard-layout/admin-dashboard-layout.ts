@@ -1,4 +1,5 @@
 import { AuthApi } from '@/auth/services/auth/auth-api';
+import { ThemeToggle } from '@/shared/components/theme-toggle/theme-toggle';
 import { Component, computed, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 
@@ -7,7 +8,8 @@ import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
   imports: [
     RouterOutlet,
     RouterLink,
-    RouterLinkActive
+    RouterLinkActive,
+    ThemeToggle
 ],
   templateUrl: './admin-dashboard-layout.html',
 })

@@ -15,7 +15,7 @@
       placeholder="Título"
       class="input input-bordered w-full"
       formControlName="title"
-      [class.border-red-500]="productForm.get('title')?.errors ?? false"
+      [class.border-error]="productForm.get('title')?.errors ?? false"
     />
 
     <form-error-label [control]="productForm.get('title')!" />
@@ -25,7 +25,7 @@
       placeholder="Slug"
       class="input input-bordered w-full"
       formControlName="slug"
-                [class.border-red-500]="productForm.get('slug')?.errors ?? false"
+                [class.border-error]="productForm.get('slug')?.errors ?? false"
     />
 
     <form-error-label [control]="productForm.get('slug')!" />
@@ -35,7 +35,7 @@
       placeholder="Descripción"
       rows="6"
       formControlName="description"
-      [class.border-red-500]="productForm.get('description')?.errors ?? false"
+      [class.border-error]="productForm.get('description')?.errors ?? false"
     ></textarea>
 
     <form-error-label [control]="productForm.get('description')!" />
@@ -49,7 +49,7 @@
           placeholder="Precio"
           class="input input-bordered w-full"
           formControlName="price"
-          [class.border-red-500]="productForm.get('price')?.errors ?? false"
+          [class.border-error]="productForm.get('price')?.errors ?? false"
         />
 
         <form-error-label [control]="productForm.get('price')!" />
@@ -60,7 +60,7 @@
           placeholder="Inventario"
           class="input input-bordered w-full"
           formControlName="stock"
-          [class.border-red-500]="productForm.get('stock')?.errors ?? false"
+          [class.border-error]="productForm.get('stock')?.errors ?? false"
         />
 
         <form-error-label [control]="productForm.get('stock')!" />
@@ -74,7 +74,7 @@
       placeholder="Tags"
       class="input input-bordered w-full"
       formControlName="tags"
-      [class.border-red-500]="productForm.get('tags')?.errors ?? false"
+      [class.border-error]="productForm.get('tags')?.errors ?? false"
     />
 
     <form-error-label [control]="productForm.get('tags')!" />

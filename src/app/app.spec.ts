@@ -3,6 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { App } from './app';
+import { ThemeStore } from '@/shared/services/theme-store';
+import { createThemeStoreMock } from 'src/testing/mocks';
 
 describe('App', () => {
   let fixture: ComponentFixture<App>;
@@ -10,7 +12,12 @@ describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideZonelessChangeDetection(), provideRouter([])],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        // Evita que el `ThemeStore` real toque el <html> compartido por los specs.
+        { provide: ThemeStore, useValue: createThemeStoreMock() },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(App);

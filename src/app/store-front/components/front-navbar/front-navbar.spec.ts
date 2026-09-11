@@ -4,16 +4,19 @@ import { provideRouter } from '@angular/router';
 
 import { FrontNavbar } from './front-navbar';
 import { AuthApi } from '@/auth/services/auth/auth-api';
-import { createAuthApiMock, createUser } from 'src/testing/mocks';
+import { ThemeStore } from '@/shared/services/theme-store';
+import { createAuthApiMock, createThemeStoreMock, createUser } from 'src/testing/mocks';
 
 describe('FrontNavbar', () => {
   let fixture: ComponentFixture<FrontNavbar>;
   let authApi: ReturnType<typeof createAuthApiMock>;
+  let themeStore: ReturnType<typeof createThemeStoreMock>;
 
   const html = () => (fixture.nativeElement as HTMLElement);
 
   beforeEach(async () => {
     authApi = createAuthApiMock({ authStatus: 'checking' });
+    themeStore = createThemeStoreMock();
 
     await TestBed.configureTestingModule({
       imports: [FrontNavbar],
@@ -21,6 +24,7 @@ describe('FrontNavbar', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: AuthApi, useValue: authApi },
+        { provide: ThemeStore, useValue: themeStore },
       ],
     }).compileComponents();
 
@@ -87,5 +91,20 @@ describe('FrontNavbar', () => {
 
     const hrefs = Array.from(html().querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('/admin');
+  });
+
+  it('should show the theme toggle regardless of the session status', () => {
+    expect(html().querySelector('theme-toggle')).not.toBeNull();
+
+    authApi.authStatus.set('authenticated');
+    fixture.detectChanges();
+
+    expect(html().querySelector('theme-toggle')).not.toBeNull();
+  });
+
+  it('should toggle the theme from the navbar', () => {
+    html().querySelector<HTMLInputElement>('theme-toggle input')!.click();
+
+    expect(themeStore.toggle).toHaveBeenCalledTimes(1);
   });
 });

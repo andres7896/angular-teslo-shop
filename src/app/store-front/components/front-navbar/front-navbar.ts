@@ -1,4 +1,5 @@
 import { AuthApi } from '@/auth/services/auth/auth-api';
+import { ThemeToggle } from '@/shared/components/theme-toggle/theme-toggle';
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
@@ -6,7 +7,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
   selector: 'front-navbar',
   imports: [
     RouterLink,
-    RouterLinkActive
+    RouterLinkActive,
+    ThemeToggle
   ],
   templateUrl: './front-navbar.html',
 })

@@ -4,6 +4,7 @@ import { BehaviorSubject, Observable, of } from 'rxjs';
 
 import { User } from '@/auth/interfaces/user.interface';
 import { Gender, Product, ProductsResponse, Size } from '@/products/interfaces/product.interface';
+import { ThemePreference } from '@/shared/services/theme-store';
 
 /**
  * Helpers compartidos por los specs. Este archivo está excluido del build de la
@@ -110,5 +111,22 @@ export function createAuthApiMock(
     login: jasmine.createSpy('login').and.returnValue(of(true)),
     signUp: jasmine.createSpy('signUp').and.returnValue(of(true)),
     checkStatus: jasmine.createSpy('checkStatus').and.returnValue(of(false)),
+  };
+}
+
+/**
+ * Doble de `ThemeStore` para los componentes que montan `<theme-toggle/>`.
+ * Evita que los specs toquen `matchMedia`, `localStorage` y el `<html>` real.
+ */
+export function createThemeStoreMock(
+  options: { isDark?: boolean; preference?: ThemePreference } = {},
+) {
+  const isDark = signal(options.isDark ?? false);
+
+  return {
+    isDark,
+    preference: signal<ThemePreference>(options.preference ?? 'system'),
+    toggle: jasmine.createSpy('toggle').and.callFake(() => isDark.set(!isDark())),
+    setPreference: jasmine.createSpy('setPreference'),
   };
 }

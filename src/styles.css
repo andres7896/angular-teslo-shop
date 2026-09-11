@@ -28,5 +28,40 @@ html {
 }
 
 @plugin "daisyui" {
-  themes: emerald --default, forest --prefersdark;
+  themes: emerald --default, dim --prefersdark;
+}
+
+/*
+ * `dim` trae un secundario naranja (hue 35) y un acento morado (hue 311) que no
+ * tienen nada que ver con el azul (hue 261) y el coral (hue 33) de `emerald`: la
+ * marca cambiaba de color al alternar el tema. Se reusan los tonos de `emerald`,
+ * subiendo la luminosidad al 74% para que contrasten sobre el fondo oscuro
+ * (5.7:1 el secundario y 5.5:1 el acento sobre `base-100` de dim, ambos AA).
+ *
+ * Van fuera de `@layer` a propósito: así ganan a las reglas de daisyUI, que sí
+ * están en capa, sin necesidad de subir la especificidad.
+ */
+:root {
+  --teslo-dark-secondary: oklch(74% 0.12 261.294);
+  --teslo-dark-secondary-content: oklch(16% 0.03 261.294);
+  --teslo-dark-accent: oklch(74% 0.12 33.2);
+  --teslo-dark-accent-content: oklch(16% 0.03 33.2);
+}
+
+/* Modo oscuro elegido explícitamente por el usuario. */
+[data-theme="dim"] {
+  --color-secondary: var(--teslo-dark-secondary);
+  --color-secondary-content: var(--teslo-dark-secondary-content);
+  --color-accent: var(--teslo-dark-accent);
+  --color-accent-content: var(--teslo-dark-accent-content);
+}
+
+/* Modo oscuro heredado del sistema, cuando no hay elección guardada. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-secondary: var(--teslo-dark-secondary);
+    --color-secondary-content: var(--teslo-dark-secondary-content);
+    --color-accent: var(--teslo-dark-accent);
+    --color-accent-content: var(--teslo-dark-accent-content);
+  }
 }
