@@ -85,7 +85,7 @@
       <button
         type="button"
         class="btn btn-sm"
-        [class.btn-primary]="productForm.value.gender === 'men'"
+        [class.btn-secondary]="productForm.value.gender === 'men'"
         (click)="productForm.patchValue({ gender: 'men' })"
       >
         Masculino
@@ -93,7 +93,7 @@
       <button
         type="button"
         class="btn btn-sm"
-        [class.btn-accent]="productForm.value.gender === 'women'"
+        [class.btn-secondary]="productForm.value.gender === 'women'"
         (click)="productForm.patchValue({ gender: 'women' })"
       >
         Femenino
@@ -101,7 +101,7 @@
       <button
         type="button"
         class="btn btn-sm"
-        [class.btn-warning]="productForm.value.gender === 'kid'"
+        [class.btn-secondary]="productForm.value.gender === 'kid'"
         (click)="productForm.patchValue({ gender: 'kid' })"
       >
         Kid

@@ -69,6 +69,14 @@ describe('ProductCard', () => {
     links.forEach((url) => expect(url).toBe('/product/teslo-hoodie'));
   });
 
+  it('should stretch the host to fill its grid cell', () => {
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.classList).toContain('block');
+    expect(host.classList).toContain('h-full');
+    expect(host.querySelector('.card')?.classList).toContain('h-full');
+  });
+
   it('should expose the computed image url', () => {
     expect(component.imageUrl()).toBe('http://localhost:3000/api/files/product/hoodie.jpg');
   });
