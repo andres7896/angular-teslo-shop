@@ -1,15 +1,19 @@
 // Hooks del flujo de trabajo de Claude Code para TesloShop.
 // Uso: node workflow.mjs <session-start|prompt-submit|pre-edit|pre-bash>
-// Lee el JSON del hook por stdin. Ante cualquier error inesperado deja pasar (fail-open).
+//      node workflow.mjs smoke-ok "<qué se validó>"   (comando manual, no es un hook)
+// Los hooks leen el JSON del evento por stdin. Ante cualquier error inesperado dejan pasar (fail-open).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const CONTEXT_DIR = path.join(PROJECT_DIR, '.claude', 'context');
 const CONTEXT_FILE = path.join(CONTEXT_DIR, 'project-context.md');
 const REVIEW_FILE = path.join(CONTEXT_DIR, 'review-approved.json');
+const SMOKE_FILE = path.join(CONTEXT_DIR, 'smoke-approved.json');
+const SRC_DIR = 'src';
 const MAIN = 'main';
 
 // ---------- utilidades ----------
@@ -132,6 +136,75 @@ function preEdit(input) {
   );
 }
 
+// ---------- smoke en navegador ----------
+
+/**
+ * Huella del contenido de `src/`: incluye archivos versionados y sin versionar (no ignorados),
+ * así que no cambia cuando git-review hace stage de las rutas entre el smoke y el commit.
+ * null si git falla.
+ */
+function srcDigest() {
+  const listed = git(['ls-files', '-c', '-o', '--exclude-standard', '--', SRC_DIR], 10000);
+  if (listed === null) return null;
+
+  const digest = createHash('sha256');
+  for (const file of listed.split('\n').map((line) => line.trim()).filter(Boolean).sort()) {
+    digest.update(`${file}\0`);
+    try {
+      digest.update(createHash('sha256').update(readFileSync(path.join(PROJECT_DIR, file))).digest('hex'));
+    } catch {
+      digest.update('ausente'); // p. ej. versionado pero borrado del working tree
+    }
+    digest.update('\0');
+  }
+  return digest.digest('hex');
+}
+
+/** Registra que el smoke en navegador pasó para el estado actual de `src/`. */
+function smokeOk() {
+  const digest = srcDigest();
+  if (!digest) {
+    console.log('No se pudo calcular la huella de src/: comprueba que git funcione en el proyecto.');
+    return;
+  }
+
+  const record = {
+    branch: currentBranch(),
+    src_digest: digest,
+    checked_at: new Date().toISOString(),
+    notes: process.argv.slice(3).join(' ').trim() || null,
+  };
+  mkdirSync(CONTEXT_DIR, { recursive: true });
+  writeFileSync(SMOKE_FILE, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  console.log(
+    `Smoke registrado para ${record.branch || '(HEAD detached)'} (src ${digest.slice(0, 12)}) en ${SMOKE_FILE}.`,
+  );
+}
+
+/** true si el índice tiene cambios en `src/` respecto de HEAD. */
+function indexTouchesSrc() {
+  return Boolean(git(['diff', '--cached', '--name-only', 'HEAD', '--', SRC_DIR]));
+}
+
+function smokeMatchesSrc() {
+  try {
+    if (!existsSync(SMOKE_FILE)) return false;
+    const smoke = JSON.parse(readFileSync(SMOKE_FILE, 'utf8'));
+    return smoke.branch === currentBranch() && smoke.src_digest === srcDigest();
+  } catch {
+    return true; // fail-open: no poder leer la marca no debe bloquear el commit
+  }
+}
+
+function checkSmoke() {
+  if (process.env.CLAUDE_SKIP_SMOKE === '1') return null;
+  if (!indexTouchesSrc() || smokeMatchesSrc()) return null;
+  return deny(
+    'Los cambios de src/ no pasaron el smoke en navegador: levanta la app, valídala con la extensión de Chrome ' +
+      'y ejecuta `node .claude/hooks/workflow.mjs smoke-ok "<qué validaste>"` antes de commitear.',
+  );
+}
+
 // ---------- pre-bash ----------
 
 const GIT_COMMIT_OR_PUSH = /\bgit((?:\s+-[Cc]\s+\S+|\s+--[\w-]+(?:=\S+)?)*)\s+(commit|push)\b(.*)$/;
@@ -205,6 +278,8 @@ function checkCommit(args) {
   if (problem) {
     return deny(`git commit ${problem} no está permitido: el commit lo hace git-review con el índice revisado.`);
   }
+  const smokeVerdict = checkSmoke();
+  if (smokeVerdict) return smokeVerdict;
   if (!reviewMatchesIndex()) {
     return deny('El índice no pasó por git-review: invoca el sub-agente git-review (modo commit) antes de commitear.');
   }
@@ -311,6 +386,7 @@ function preBash(input) {
 
 // ---------- main ----------
 
+// Handlers de hook: reciben el JSON del evento por stdin.
 const HANDLERS = {
   'session-start': sessionStart,
   'prompt-submit': promptSubmit,
@@ -318,8 +394,19 @@ const HANDLERS = {
   'pre-bash': preBash,
 };
 
+// Comandos que invoca el agente a mano: no leen stdin (bloquearía sin redirección).
+const COMMANDS = {
+  'smoke-ok': smokeOk,
+};
+
+const command = COMMANDS[process.argv[2]];
 try {
-  HANDLERS[process.argv[2]]?.(readStdinJson());
-} catch {
-  // fail-open: un hook roto nunca debe bloquear la sesión
+  if (command) command();
+  else HANDLERS[process.argv[2]]?.(readStdinJson());
+} catch (error) {
+  // fail-open: un hook roto nunca debe bloquear la sesión. Los comandos sí reportan el fallo.
+  if (command) {
+    console.error(`${process.argv[2]} falló: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

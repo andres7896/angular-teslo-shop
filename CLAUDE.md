@@ -35,17 +35,41 @@ Frontend de un e-commerce de ropa (estilo Teslo) en **Angular 20.3**. El backend
    - tras aprobar el plan y antes del primer cambio, invocar `git-branch`;
    - si reporta cambios sin commitear o una rama existente, preguntar al usuario;
    - las ediciones en `main` están bloqueadas por hook. **Nunca escribir archivos con Bash/PowerShell para saltarse el bloqueo**.
-4. **Commit**:
+4. **Verificación** (obligatoria al terminar de implementar, antes de commitear):
+   - `npm run test:ci`. Con tests en rojo no se avanza: corregir y repetir;
+   - `npm run build` como chequeo de tipos;
+   - levantar la app (`npm start`, en segundo plano) y validarla en el navegador con la extensión de Claude en Chrome: el checklist base de «Smoke en navegador» más los checks propios de la feature;
+   - con todo en verde, registrar el smoke: `node .claude/hooks/workflow.mjs smoke-ok "<qué se validó>"`;
+   - cerrar la pestaña y apagar el dev server. En Windows, matar la tarea de `npm start` deja vivo el `ng serve`: comprobar con `curl` y, si el puerto sigue ocupado, `Get-NetTCPConnection -LocalPort 4200 -State Listen` + `Stop-Process`.
+5. **Commit**:
    - al terminar, invocar `git-review` en modo `commit` **en primer plano** (`run_in_background: false`);
    - si devuelve hallazgos 🔴, mostrar el informe y preguntar: corregir, u override con la frase `override aprobado por el usuario: <razón>`;
-   - **nunca `git commit` directo**: el hook lo rechaza si el índice no pasó por `git-review`.
-5. **Push**:
+   - **nunca `git commit` directo**: el hook lo rechaza si el índice no pasó por `git-review`, o si toca `src/` sin un smoke válido. Si lo rechaza por el smoke, volver al paso 4; no usar el escape.
+6. **Push**:
    - mostrar el informe y los commits, y preguntar con AskUserQuestion «¿push de `<rama>` @ `<sha>`?»;
    - solo con un sí, invocar `git-review` en modo `push` (primer plano) con la frase `push confirmado por el usuario para <rama> @ <sha>`. El hook además pide el permiso nativo;
    - **nunca `git push` directo**, ni force, ni push a `main`.
-6. **Ante cualquier duda, preguntar al usuario** antes de asumir.
+7. **Ante cualquier duda, preguntar al usuario** antes de asumir.
+
+## Smoke en navegador
+
+Con `npm start` corriendo, abrir una pestaña nueva (`tabs_create_mcp`; nunca reusar una del usuario sin permiso) y recorrer el checklist. Todas las rutas usan hash location.
+
+La primera carga despierta el backend en Render (free tier) y puede tardar ~50 s. Si falla, **no es un bug de la feature**: el `rxResource` cachea el error (`ResourceValueError` en consola, «No hay productos» en pantalla) y no reintenta solo. Comprobar la API con `curl .../api/products?limit=3&offset=0` y, si responde 200, recargar la pestaña antes de diagnosticar nada más.
+
+- `#/` — el carrusel Swiper y el grid de productos renderizan.
+- `#/gender/men` — grid filtrado y paginación.
+- Detalle de producto **navegando desde el grid**, no con un slug fijo.
+- `<theme-toggle>` — alterna claro/oscuro y la preferencia sobrevive a una recarga.
+- `#/auth/login` con el usuario de `.claude/context/smoke.local.json` → redirige a `/`.
+- `#/admin/products` — el listado admin carga.
+- `read_console_messages` sin errores y `read_network_requests` sin 4xx/5xx inesperados.
+- Los checks propios de la feature, derivados del plan aprobado.
+
+Las capturas van al scratchpad de la sesión (nunca al repo); las relevantes se le muestran al usuario. Si algo falla: corregir, repetir tests y smoke. Cualquier cambio posterior en `src/` invalida el smoke anterior, porque la marca guarda una huella del contenido de `src/`.
 
 ## Notas
 
 - El git del usuario tiene `pull.rebase=true`. Para actualizar `main` usar `git fetch origin main` + `git merge --ff-only origin/main`, no `git pull`.
-- Escapes de los hooks, solo si el usuario lo pide: `CLAUDE_ALLOW_MAIN_EDITS=1` y `CLAUDE_SKIP_REVIEW=1`.
+- Las credenciales del usuario de prueba del smoke viven en `.claude/context/smoke.local.json` (`{ "email": "…", "password": "…" }`). No se commitean: `/.claude/context/` está en `.gitignore`. Nunca escribirlas en el chat, en el código ni en un commit.
+- Escapes de los hooks, solo si el usuario lo pide: `CLAUDE_ALLOW_MAIN_EDITS=1`, `CLAUDE_SKIP_SMOKE=1` (salta solo el smoke) y `CLAUDE_SKIP_REVIEW=1` (salta ambas compuertas del commit).

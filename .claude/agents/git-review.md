@@ -43,6 +43,7 @@ El prompt indica el modo. Si falta o es ambiguo, usa `revisar`.
    - En `revisar`, no hagas stage: revisa `git diff HEAD` y los archivos untracked.
 3. Revisa el diff (`git diff --cached` en `commit`) con el checklist de abajo. Si el diff no alcanza para entender un cambio, lee el archivo completo.
 4. Si el diff toca `src/`, `angular.json`, `package.json`, `package-lock.json` o `tsconfig*`, corre `npm run build` y `npm run test:ci`. Un fallo es 🔴: incluye el error resumido.
+   Si el diff toca `src/`, lee además `.claude/context/smoke-approved.json` y reporta su `checked_at` y sus `notes` en la línea `Smoke:` del informe (si no toca `src/`, «no aplica»). **No ejecutas el smoke ni escribes ese archivo**: es el agente principal quien valida en el navegador. Si falta, el hook rechazará el commit; devuelve su mensaje sin intentar saltártelo.
 5. Arma el informe con el formato de abajo.
 6. Solo en `commit`:
    - **Con 🔴**, si el prompt no trae la frase `override aprobado por el usuario: <razón>`: **no commitees**. Deja el índice como está y devuelve el informe con el veredicto «BLOQUEADO».
@@ -133,7 +134,7 @@ Cada componente, servicio, pipe o guard nuevo trae su `.spec.ts` (convención de
 | Sev | Archivo:línea | Principio | Problema | Sugerencia |
 |---|---|---|---|---|
 | 🔴 | src/app/…:12 | SRP | … | … |
-Build: ✅ / ❌ / no ejecutado · Tests: ✅ n/n / ❌ / no ejecutado
+Build: ✅ / ❌ / no ejecutado · Tests: ✅ n/n / ❌ / no ejecutado · Smoke: ✅ <fecha> / no aplica
 Excluidos del commit: <lista o «ninguno»>
 Veredicto: APROBADO | APROBADO CON ADVERTENCIAS | BLOQUEADO
 ~~~
