@@ -141,14 +141,17 @@ function preEdit(input) {
 /**
  * Huella del contenido de `src/`: incluye archivos versionados y sin versionar (no ignorados),
  * así que no cambia cuando git-review hace stage de las rutas entre el smoke y el commit.
- * null si git falla.
+ * `ls-files` deja de listar un borrado en cuanto se stagea, así que se suman los nombres que
+ * `diff HEAD` sí reporta en ambos estados. null si git falla.
  */
 function srcDigest() {
   const listed = git(['ls-files', '-c', '-o', '--exclude-standard', '--', SRC_DIR], 10000);
-  if (listed === null) return null;
+  const changed = git(['diff', '--name-only', 'HEAD', '--', SRC_DIR], 10000);
+  if (listed === null || changed === null) return null;
 
+  const names = `${listed}\n${changed}`.split('\n').map((line) => line.trim()).filter(Boolean);
   const digest = createHash('sha256');
-  for (const file of listed.split('\n').map((line) => line.trim()).filter(Boolean).sort()) {
+  for (const file of [...new Set(names)].sort()) {
     digest.update(`${file}\0`);
     try {
       digest.update(createHash('sha256').update(readFileSync(path.join(PROJECT_DIR, file))).digest('hex'));
@@ -164,7 +167,8 @@ function srcDigest() {
 function smokeOk() {
   const digest = srcDigest();
   if (!digest) {
-    console.log('No se pudo calcular la huella de src/: comprueba que git funcione en el proyecto.');
+    console.error('No se pudo calcular la huella de src/: comprueba que git funcione en el proyecto.');
+    process.exitCode = 1;
     return;
   }
 
@@ -399,14 +403,15 @@ const COMMANDS = {
   'smoke-ok': smokeOk,
 };
 
-const command = COMMANDS[process.argv[2]];
+const name = process.argv[2] ?? '';
+const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
 try {
   if (command) command();
-  else HANDLERS[process.argv[2]]?.(readStdinJson());
+  else if (Object.hasOwn(HANDLERS, name)) HANDLERS[name](readStdinJson());
 } catch (error) {
   // fail-open: un hook roto nunca debe bloquear la sesión. Los comandos sí reportan el fallo.
   if (command) {
-    console.error(`${process.argv[2]} falló: ${error.message}`);
+    console.error(`${name} falló: ${error.message}`);
     process.exitCode = 1;
   }
 }
