@@ -1,10 +1,14 @@
 
-<div class="join flex justify-center items-center">
+<div class="join flex justify-center items-center my-8">
 
   @for (page of getPagesList(); track page)
   {
+    <!--
+      daisyUI pinta el radio marcado con el token `primary`; la marca de la app
+      es `secondary`, así que se sobrescribe `--btn-color` solo en `:checked`.
+    -->
     <input
-      class="join-item btn btn-square"
+      class="join-item btn btn-square checked:[--btn-color:var(--color-secondary)] checked:[--btn-fg:var(--color-secondary-content)]"
       type="radio"
       name="options"
       [aria-label]="page"
